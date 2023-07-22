@@ -140,19 +140,20 @@ class SQLInterface:
         raise NotImplementedError('`canonicalize_identifier` not implemented.')
 
     def fetch_column_from_path(self, path, table_schema):
-        """
-        Should only be used for paths which have been established, ie, the schema will
-        not be changing etc.
-        :param path:
-        :param table_schema:
-        :return:
-        """
+        mappings = table_schema.get('mappings', {})
+        if mappings:  # If mappings exist
+            for to, m in mappings.items():
+                if tuple(m['from']) == path:
+                    return to, json_schema.simple_type(m)
 
-        for to, m in table_schema.get('mappings', {}).items():
-            if tuple(m['from']) == path:
-                return to, json_schema.simple_type(m)
+        # If mappings don't exist, try fetching the schema directly from properties
+        else:
+            schema = table_schema.get('schema', {}).get('properties', {})
+            for key, value in schema.items():
+                if key == path[0]:
+                    return key, json_schema.simple_type(value)
 
-        raise Exception('blahbittyblah')
+        raise Exception('No matching path found for {} in table schema mappings or properties.'.format(path))
 
     def _canonicalize_column_identifier(self, path, schema, mappings):
         """"""
@@ -171,15 +172,16 @@ class SQLInterface:
             return from_type__to_name[(path, json_schema.shorthand(schema))]
 
         raw_canonicalized_column_name = self.canonicalize_identifier(SEPARATOR.join(path))
-        canonicalized_column_name = self.canonicalize_identifier(raw_canonicalized_column_name[:self.IDENTIFIER_FIELD_LENGTH])
+        canonicalized_column_name = self.canonicalize_identifier(
+            raw_canonicalized_column_name[:self.IDENTIFIER_FIELD_LENGTH])
 
         raw_suffix = ''
         ## NO TYPE MATCH
         if path in existing_paths:
             raw_suffix = SEPARATOR + json_schema.shorthand(schema)
             canonicalized_column_name = self.canonicalize_identifier(
-                                          raw_canonicalized_column_name[
-                                            :self.IDENTIFIER_FIELD_LENGTH - len(raw_suffix)] + raw_suffix)
+                raw_canonicalized_column_name[
+                :self.IDENTIFIER_FIELD_LENGTH - len(raw_suffix)] + raw_suffix)
 
             self.LOGGER.warning(
                 'FIELD COLLISION: Field `{}` exists in remote already. No compatible type found. Appending type suffix: `{}`'.format(
@@ -199,8 +201,8 @@ class SQLInterface:
             i += 1
             suffix = raw_suffix + SEPARATOR + str(i)
             canonicalized_column_name = self.canonicalize_identifier(
-                                          raw_canonicalized_column_name[
-                                            :self.IDENTIFIER_FIELD_LENGTH - len(suffix)] + suffix)
+                raw_canonicalized_column_name[
+                :self.IDENTIFIER_FIELD_LENGTH - len(suffix)] + suffix)
 
         return canonicalized_column_name
 
@@ -257,7 +259,7 @@ class SQLInterface:
             i += 1
             suffix = SEPARATOR + str(i)
             canonicalized_name = self.canonicalize_identifier(raw_canonicalized_name[
-                                   :self.IDENTIFIER_FIELD_LENGTH - len(suffix)] + suffix)
+                                                              :self.IDENTIFIER_FIELD_LENGTH - len(suffix)] + suffix)
 
         return {'exists': False, 'to': canonicalized_name}
 
@@ -642,10 +644,10 @@ class SQLInterface:
 
         # rebuild the dict that needs to be passed further down the call stack
         if len(value_json_schema_tuple) == 1:
-            value_json_schema = { 'type': value_json_schema_tuple[0] }
+            value_json_schema = {'type': value_json_schema_tuple[0]}
         else:
             value_json_schema = {'type': value_json_schema_tuple[0],
-                     'format': value_json_schema_tuple[1]}
+                                 'format': value_json_schema_tuple[1]}
 
         simple_json_schema = json_schema.simple_type(value_json_schema)
 

@@ -17,8 +17,8 @@ from target_postgres import json_schema, singer
 from target_postgres.exceptions import PostgresError
 from target_postgres.sql_base import SEPARATOR, SQLInterface
 
-
 RESERVED_NULL_DEFAULT = 'NULL'
+
 
 @lru_cache(maxsize=128)
 def _format_datetime(value):
@@ -28,6 +28,7 @@ def _format_datetime(value):
     but this non-method version allows caching
     """
     return arrow.get(value).format('YYYY-MM-DD HH:mm:ss.SSSSZZ')
+
 
 def _update_schema_0_to_1(table_metadata, table_schema):
     """
@@ -94,7 +95,6 @@ class MillisLoggingConnection(LoggingConnection):
         return LoggingConnection.cursor(self, *args, **kwargs)
 
 
-
 class TransformStream:
     def __init__(self, fun):
         self.fun = fun
@@ -110,11 +110,11 @@ class PostgresTarget(SQLInterface):
     IDENTIFIER_FIELD_LENGTH = 63
 
     def __init__(self, connection, *args,
-        postgres_schema='public',
-        logging_level=None,
-        persist_empty_tables=False,
-        add_upsert_indexes=True,
-        **kwargs):
+                 postgres_schema='public',
+                 logging_level=None,
+                 persist_empty_tables=False,
+                 add_upsert_indexes=True,
+                 **kwargs):
 
         self.LOGGER.info(
             'PostgresTarget created with established connection: `{}`, PostgreSQL schema: `{}`'.format(connection.dsn,
@@ -252,8 +252,10 @@ class PostgresTarget(SQLInterface):
                 if current_table_schema:
                     current_table_version = current_table_schema.get('version', None)
 
-                    if set(stream_buffer.key_properties) \
-                            != set(current_table_schema.get('key_properties')):
+                    current_key_properties = current_table_schema.get(
+                        'key_properties') if current_table_schema else None
+                    if current_key_properties is not None and set(stream_buffer.key_properties) != set(
+                            current_key_properties):
                         raise PostgresError(
                             '`key_properties` change detected. Existing values are: {}. Streamed values are: {}'.format(
                                 current_table_schema.get('key_properties'),
@@ -261,8 +263,11 @@ class PostgresTarget(SQLInterface):
                             ))
 
                     for key_property in stream_buffer.key_properties:
+                        self.LOGGER.info('key_property: %s', key_property)
+                        self.LOGGER.info('current_table_schema: %s', current_table_schema)
                         canonicalized_key, remote_column_schema = self.fetch_column_from_path((key_property,),
                                                                                               current_table_schema)
+
                         if self.json_schema_to_sql_type(remote_column_schema) \
                                 != self.json_schema_to_sql_type(stream_buffer.schema['properties'][key_property]):
                             raise PostgresError(
@@ -300,7 +305,6 @@ class PostgresTarget(SQLInterface):
                         target_table_version = stream_buffer.max_version
 
                 self.LOGGER.info('Root table name {}'.format(root_table_name))
-
                 written_batches_details = self.write_batch_helper(cur,
                                                                   root_table_name,
                                                                   stream_buffer.schema,
@@ -711,7 +715,9 @@ class PostgresTarget(SQLInterface):
             sql.SQL('SELECT description FROM pg_description WHERE objoid = {}::regclass;').format(
                 sql.Literal(
                     '"{}"."{}"'.format(self.postgres_schema, table_name))))
-        comment = cur.fetchone()[0]
+
+        result = cur.fetchone()
+        comment = result[0] if result else None
 
         if comment:
             try:
@@ -818,7 +824,7 @@ class PostgresTarget(SQLInterface):
         :return: JSONSchema
         """
         _format = None
-        if sql_type == 'timestamp with time zone':
+        if sql_type == 'timestamp with time zone' or sql_type == 'timestamp without time zone':
             json_type = 'string'
             _format = 'date-time'
         elif sql_type == 'bigint':
@@ -827,7 +833,7 @@ class PostgresTarget(SQLInterface):
             json_type = 'number'
         elif sql_type == 'boolean':
             json_type = 'boolean'
-        elif sql_type == 'text':
+        elif sql_type == 'text' or sql_type == 'character varying' or sql_type == 'jsonb':
             json_type = 'string'
         else:
             raise PostgresError('Unsupported type `{}` in existing target table'.format(sql_type))
