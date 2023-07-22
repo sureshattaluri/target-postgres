@@ -263,8 +263,6 @@ class PostgresTarget(SQLInterface):
                             ))
 
                     for key_property in stream_buffer.key_properties:
-                        self.LOGGER.info('key_property: %s', key_property)
-                        self.LOGGER.info('current_table_schema: %s', current_table_schema)
                         canonicalized_key, remote_column_schema = self.fetch_column_from_path((key_property,),
                                                                                               current_table_schema)
 
